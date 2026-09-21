@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 # --- Defaults, used when the corresponding CLI flag is omitted ---------------
 DEFAULT_DATA_ROOT = REPO_ROOT / '10demo' / 'main'
 DEFAULT_PERSON = '100831'
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / 'nlf_smplx_params'  # independent of the 10demo/ folder
 DEFAULT_MODEL_PATH = REPO_ROOT / 'models' / 'nlf_l_multi_0.3.2.torchscript'
 DEFAULT_MODEL_URL = (
     'https://github.com/isarandi/nlf/releases/download/v0.3.2/nlf_l_multi_0.3.2.torchscript'
@@ -239,7 +240,10 @@ def main():
         '--model-url', default=DEFAULT_MODEL_URL,
         help='URL to fetch the checkpoint from if --model-path does not exist yet',
     )
-    parser.add_argument('--output-dir', default=None, help='Default: <data-root>/<person>/nlf_smplx_params')
+    parser.add_argument(
+        '--output-dir', default=None,
+        help=f'Default: {DEFAULT_OUTPUT_ROOT}/<person> (kept independent of the 10demo/ folder)',
+    )
     parser.add_argument('--device', default=None, help='cuda / cpu (default: cuda if available)')
     parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE, help='Frames per forward pass')
     parser.add_argument('--detector-threshold', type=float, default=DEFAULT_DETECTOR_THRESHOLD)
@@ -254,7 +258,7 @@ def main():
     if not images_dir.is_dir():
         raise SystemExit(f'Could not find images dir: {images_dir}')
 
-    output_dir = Path(args.output_dir) if args.output_dir else person_dir / 'nlf_smplx_params'
+    output_dir = Path(args.output_dir) if args.output_dir else DEFAULT_OUTPUT_ROOT / args.person
     device = torch.device(args.device) if args.device else torch.device(
         'cuda' if torch.cuda.is_available() else 'cpu'
     )
