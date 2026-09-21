@@ -8,27 +8,38 @@ nearest-box tracking across frames so the same person is followed throughout
 the sequence (rather than picking an unrelated detection in a frame that
 happens to contain more than one candidate box).
 
-Usage example:
-
-    python 10demo/run_nlf_smplx.py \
-        --model-path models/nlf_l_multi3.torchscript \
-        --person 100831
-
-Requires a PyTorch NLF checkpoint that supports ``model_name='smplx'`` in
-``detect_smpl_batched`` (see demo.ipynb in the repo root / the Releases page
-of https://github.com/isarandi/nlf). Only torch + torchvision + numpy are
-needed to run this script.
+Just run it with no arguments (e.g. click "Run" in your IDE, or
+``python run_nlf_smplx.py``) -- all paths below default relative to this
+file's location (the repo root), and the NLF checkpoint is downloaded
+automatically into ``models/`` on first run. Everything can still be
+overridden with CLI flags if you want, see ``--help``.
 """
 from __future__ import annotations
 
 import argparse
 import re
+import sys
+import urllib.request
 from pathlib import Path
 
 import numpy as np
 import torch
 import torchvision  # noqa: F401  (required for the traced model to load correctly)
 from torchvision.io import ImageReadMode, read_image
+
+REPO_ROOT = Path(__file__).resolve().parent
+
+# --- Defaults, used when the corresponding CLI flag is omitted ---------------
+DEFAULT_DATA_ROOT = REPO_ROOT / '10demo' / 'main'
+DEFAULT_PERSON = '100831'
+DEFAULT_MODEL_PATH = REPO_ROOT / 'models' / 'nlf_l_multi_0.3.2.torchscript'
+DEFAULT_MODEL_URL = (
+    'https://github.com/isarandi/nlf/releases/download/v0.3.2/nlf_l_multi_0.3.2.torchscript'
+)
+DEFAULT_BATCH_SIZE = 16
+DEFAULT_DETECTOR_THRESHOLD = 0.3
+DEFAULT_NUM_AUG = 5
+DEFAULT_BETA_REGULARIZER = 10.0
 
 FRAME_RE = re.compile(r'^(\d{4})\.jpg$')
 
@@ -59,6 +70,36 @@ def split_smplx_pose(pose: np.ndarray) -> dict:
         i += n
     assert i == pose.shape[0], f'expected 165-dim SMPL-X pose, got {pose.shape[0]}'
     return parts
+
+
+def ensure_model(model_path: Path, model_url: str) -> Path:
+    """Download the NLF checkpoint into place if it isn't there yet."""
+    if model_path.exists():
+        return model_path
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f'Model checkpoint not found at {model_path}.')
+    print(f'Downloading it from {model_url} (this is a one-time ~500MB download) ...')
+
+    tmp_path = model_path.with_suffix(model_path.suffix + '.part')
+
+    def report(block_num, block_size, total_size):
+        if total_size <= 0:
+            return
+        done = min(block_num * block_size, total_size)
+        pct = 100 * done / total_size
+        sys.stdout.write(f'\r  {done / 1e6:8.1f} / {total_size / 1e6:.1f} MB ({pct:5.1f}%)')
+        sys.stdout.flush()
+
+    try:
+        urllib.request.urlretrieve(model_url, tmp_path, reporthook=report)
+        print()
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    tmp_path.rename(model_path)
+    print(f'Saved model to {model_path}')
+    return model_path
 
 
 def list_camera_dirs(person_images_dir: Path, cameras_arg: str | None) -> list[Path]:
@@ -183,22 +224,27 @@ def process_camera(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--data-root', default='10demo/main', help='Path to the 10demo/main folder')
-    parser.add_argument('--person', default='100831', help='Person id, e.g. 100831')
+    parser.add_argument('--data-root', default=str(DEFAULT_DATA_ROOT), help='Path to the 10demo/main folder')
+    parser.add_argument('--person', default=DEFAULT_PERSON, help='Person id, e.g. 100831')
     parser.add_argument(
         '--cameras', default=None,
         help='Comma separated camera names to process (default: all cam_00..cam_15 found)',
     )
     parser.add_argument(
-        '--model-path', required=True,
-        help='Path to an NLF PyTorch checkpoint (.torchscript) that supports model_name="smplx"',
+        '--model-path', default=str(DEFAULT_MODEL_PATH),
+        help='Path to an NLF PyTorch checkpoint (.torchscript) that supports model_name="smplx". '
+             'Downloaded automatically if missing.',
+    )
+    parser.add_argument(
+        '--model-url', default=DEFAULT_MODEL_URL,
+        help='URL to fetch the checkpoint from if --model-path does not exist yet',
     )
     parser.add_argument('--output-dir', default=None, help='Default: <data-root>/<person>/nlf_smplx_params')
     parser.add_argument('--device', default=None, help='cuda / cpu (default: cuda if available)')
-    parser.add_argument('--batch-size', type=int, default=16, help='Frames per forward pass')
-    parser.add_argument('--detector-threshold', type=float, default=0.3)
-    parser.add_argument('--num-aug', type=int, default=5)
-    parser.add_argument('--beta-regularizer', type=float, default=10.0)
+    parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE, help='Frames per forward pass')
+    parser.add_argument('--detector-threshold', type=float, default=DEFAULT_DETECTOR_THRESHOLD)
+    parser.add_argument('--num-aug', type=int, default=DEFAULT_NUM_AUG)
+    parser.add_argument('--beta-regularizer', type=float, default=DEFAULT_BETA_REGULARIZER)
     parser.add_argument('--overwrite', action='store_true')
     args = parser.parse_args()
 
@@ -213,8 +259,10 @@ def main():
         'cuda' if torch.cuda.is_available() else 'cpu'
     )
 
-    print(f'Loading model from {args.model_path} onto {device} ...')
-    model = torch.jit.load(args.model_path, map_location=device).to(device).eval()
+    model_path = ensure_model(Path(args.model_path), args.model_url)
+
+    print(f'Loading model from {model_path} onto {device} ...')
+    model = torch.jit.load(str(model_path), map_location=device).to(device).eval()
 
     camera_dirs = list_camera_dirs(images_dir, args.cameras)
     if not camera_dirs:
