@@ -4,5 +4,7 @@ skip-string-normalization = true
 
 [dependency-groups]
 dev = [
+    "pip",
+    "uv",
     "ipykernel>=7.3.0",
 ]

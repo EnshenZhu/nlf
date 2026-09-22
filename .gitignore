@@ -163,3 +163,5 @@ cython_debug/
 
 # Dataset
 10demo
+*.npz
+*.torchscript
