@@ -22,6 +22,7 @@ from pathlib import Path
 
 PERSON_ID = "100831"
 ROOT = Path(__file__).parent / "nlf_smplx_params" / PERSON_ID
+BETA_ID = 0
 
 
 def relative_deviation_pct(values):
@@ -34,9 +35,9 @@ def relative_deviation_pct(values):
     return abs(cum_error / mean) * 100.0
 
 
-def load_beta0(npz_path: Path) -> float:
+def load_beta(npz_path: Path) -> float:
     with np.load(npz_path) as d:
-        return float(d["betas"][0])
+        return float(d["betas"][BETA_ID])
 
 
 def main():
@@ -54,7 +55,7 @@ def main():
         cam_to_pose_beta0[cam_name] = {}
         for npz_path in sorted(cam_dir.glob("*.npz")):
             pose_name = npz_path.stem
-            beta0 = load_beta0(npz_path)
+            beta0 = load_beta(npz_path)
             cam_to_pose_beta0[cam_name][pose_name] = beta0
             pose_to_cam_beta0.setdefault(pose_name, {})[cam_name] = beta0
 
@@ -110,15 +111,16 @@ def main():
     # ---- Overall summary ----
     print()
     print("=" * 70)
-    print("Summary")
+    print("NLF Deviation Summary")
     print("=" * 70)
-    print(f"  Person ID: {PERSON_ID}")
+    print(f"  Person ID: {PERSON_ID}, Beta ID: {BETA_ID}")
     print(f"  Cameras: {num_cams}, Poses per camera: "
           f"{len(next(iter(cam_to_pose_beta0.values())))}")
     if cross_cam_devs:
         print(f"  Mean across-camera deviation: {np.mean(cross_cam_devs):.3f}%")
     if cross_pose_devs:
         print(f"  Mean across-pose deviation:   {np.mean(cross_pose_devs):.3f}%")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
